@@ -26,6 +26,8 @@ interface CallControlsProps {
   autoSpeak: boolean;
   viewLayout: ViewLayout;
   currentPerspective: "colombia" | "boston";
+  aiStatus?: "idle" | "listening" | "analyzing" | "translated";
+  aiStatusMessage?: string;
   onToggleMic: () => void;
   onToggleVideo: () => void;
   onToggleListening: () => void;
@@ -46,6 +48,8 @@ export const CallControls: React.FC<CallControlsProps> = ({
   autoSpeak,
   viewLayout,
   currentPerspective,
+  aiStatus = "idle",
+  aiStatusMessage = "",
   onToggleMic,
   onToggleVideo,
   onToggleListening,
@@ -107,18 +111,31 @@ export const CallControls: React.FC<CallControlsProps> = ({
           onClick={onToggleListening}
           className={`px-4 py-2.5 rounded-2xl flex items-center gap-2 font-semibold text-xs sm:text-sm transition-all shadow-md ${
             isListening
-              ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white ring-2 ring-emerald-400/50 animate-pulse"
+              ? aiStatus === "analyzing"
+                ? "bg-gradient-to-r from-amber-600 to-indigo-600 text-white ring-2 ring-amber-400/50 animate-pulse"
+                : "bg-gradient-to-r from-emerald-600 to-teal-600 text-white ring-2 ring-emerald-400/50"
               : isDark
               ? "bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
               : "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300"
           }`}
-          title="Activar reconocimiento de voz y subtítulos en vivo"
+          title="Activar reconocimiento de voz y subtítulos automáticos en vivo con IA"
         >
-          <Sparkles className="w-4 h-4 text-amber-300" />
-          <span className="hidden sm:inline">
-            {isListening ? "Escucha Activa (Traduciendo)" : "Iniciar Escucha IA"}
-          </span>
-          <span className="sm:hidden">{isListening ? "Activo" : "Escuchar"}</span>
+          <Sparkles className="w-4 h-4 text-amber-300 animate-spin" style={{ animationDuration: "4s" }} />
+          <div className="flex flex-col text-left">
+            <span className="hidden sm:inline leading-none font-bold">
+              {isListening
+                ? aiStatus === "analyzing"
+                  ? "IA Gemini Traduciendo..."
+                  : "IA Escuchando en Vivo"
+                : "Conectar Escucha IA"}
+            </span>
+            <span className="sm:hidden leading-none font-bold">{isListening ? "IA Activa" : "Escuchar"}</span>
+            {isListening && (
+              <span className="text-[9px] text-emerald-100/90 leading-none mt-0.5 hidden md:inline">
+                {aiStatusMessage || "Traducción automática"}
+              </span>
+            )}
+          </div>
         </button>
       </div>
 

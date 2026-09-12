@@ -133,11 +133,14 @@ export default function App() {
   localParticipant.audioLevel = localAudioLevel;
   localParticipant.isSpeaking = localAudioLevel > 15;
 
-  // Speech Recognition Hook for live mic capture & instant translation
+  // Speech Recognition Hook for live mic capture & instant translation with Gemini AI
   const {
     isListening,
     interimText,
     isTranslating,
+    aiStatus,
+    aiStatusMessage,
+    audioInputLevel,
     startListening,
     stopListening,
     toggleListening,
@@ -148,6 +151,7 @@ export default function App() {
     speakerId: "local-colombia",
     speakerName: "Tú (Colombia)",
     speakerLocation: "Bogotá, Colombia",
+    mediaStream: localStream,
     autoSpeakTranslation: autoSpeak,
     onNewSubtitle: (item) => {
       setActiveSubtitle(item);
@@ -155,6 +159,13 @@ export default function App() {
       broadcastSubtitle(item);
     },
   });
+
+  // Automatically initiate AI audio listening when microphone is active
+  useEffect(() => {
+    if (localStream && !isMicMuted && !isListening) {
+      startListening();
+    }
+  }, [localStream, isMicMuted, isListening, startListening]);
 
   // Call timer effect
   useEffect(() => {
@@ -259,11 +270,13 @@ export default function App() {
       {/* Main Video Call Stage */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 flex flex-col justify-between gap-4">
         {/* Call Info & Perspective Alert Banner */}
-        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-2xl border text-xs backdrop-blur-md transition-all ${
-          isDark
-            ? 'bg-slate-900/60 border-slate-800 text-slate-300'
-            : 'bg-white/80 border-slate-200 text-slate-700 shadow-2xs'
-        }">
+        <div
+          className={`flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 rounded-2xl border text-xs backdrop-blur-md transition-all ${
+            isDark
+              ? "bg-slate-900/60 border-slate-800 text-slate-300"
+              : "bg-white/80 border-slate-200 text-slate-700 shadow-2xs"
+          }`}
+        >
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
             <span className="font-semibold">Llamada en curso: {formatTimer(callSeconds)}</span>
@@ -286,6 +299,86 @@ export default function App() {
                   : "Viendo desde Boston 🇺🇸 (Tú hablas en español y Sarah lee en inglés)"}
               </span>
             </span>
+          </div>
+        </div>
+
+        {/* AI Live Listening Banner: Shows continuous auto-translation status */}
+        <div
+          id="ai-listening-status-banner"
+          className={`px-4 py-2.5 rounded-2xl border flex flex-wrap items-center justify-between gap-2 transition-all duration-300 ${
+            isListening
+              ? aiStatus === "analyzing"
+                ? "bg-indigo-950/40 border-indigo-500/40 text-indigo-200"
+                : "bg-emerald-950/30 border-emerald-500/30 text-emerald-200"
+              : isDark
+              ? "bg-slate-900/40 border-slate-800 text-slate-400"
+              : "bg-slate-100 border-slate-200 text-slate-600"
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <div className="relative flex items-center justify-center">
+              <span
+                className={`w-3 h-3 rounded-full ${
+                  isListening
+                    ? aiStatus === "analyzing"
+                      ? "bg-amber-400 animate-ping"
+                      : "bg-emerald-400 animate-pulse"
+                    : "bg-slate-500"
+                }`}
+              />
+              <Sparkles className="w-4 h-4 text-amber-300 ml-1.5" />
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 text-xs">
+              <span className="font-bold text-slate-100 flex items-center gap-1.5">
+                <span>IA Gemini:</span>
+                <span className={isListening ? "text-emerald-400" : "text-slate-400"}>
+                  {isListening
+                    ? aiStatus === "analyzing"
+                      ? "⚡ Escuchando y traduciendo en tiempo real..."
+                      : "🟢 Escucha Activa Conectada"
+                    : "⚪ Escucha en Pausa"}
+                </span>
+              </span>
+              <span className="text-[11px] text-slate-400">
+                {isListening
+                  ? interimText
+                    ? `Detectando voz: "${interimText}"`
+                    : aiStatusMessage || "Habla con normalidad al micrófono; la IA traduce cada frase al instante."
+                  : "Presiona 'Conectar Escucha IA' para que el micrófono traduzca automáticamente lo que hables."}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {isListening && (
+              <div
+                className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-black/40 border border-white/10 text-[10px] font-mono"
+                title={`Sensibilidad de voz detectada: ${audioInputLevel}%`}
+              >
+                <span className="text-slate-400">Mic VAD:</span>
+                <span
+                  className={`font-bold ${
+                    audioInputLevel > 15 ? "text-emerald-400" : "text-slate-500"
+                  }`}
+                >
+                  {audioInputLevel}%
+                </span>
+              </div>
+            )}
+
+            <button
+              id="banner-toggle-listening-btn"
+              type="button"
+              onClick={toggleListening}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
+                isListening
+                  ? "bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
+                  : "bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs"
+              }`}
+            >
+              {isListening ? "Pausar Escucha" : "Activar Escucha"}
+            </button>
           </div>
         </div>
 
@@ -368,6 +461,8 @@ export default function App() {
           autoSpeak={autoSpeak}
           viewLayout={viewLayout}
           currentPerspective={currentPerspective}
+          aiStatus={aiStatus}
+          aiStatusMessage={aiStatusMessage}
           onToggleMic={toggleMic}
           onToggleVideo={toggleCamera}
           onToggleListening={toggleListening}

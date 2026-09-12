@@ -10,7 +10,7 @@ dotenv.config();
 
 const app = express();
 const PORT = 3000;
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "25mb" }));
 
 // Server-side Gemini initialization
 let aiClient: GoogleGenAI | null = null;
@@ -150,6 +150,100 @@ Rules:
   } catch (err: any) {
     console.error("Translation error:", err);
     return res.status(500).json({ error: err.message || "Translation error" });
+  }
+});
+
+// API: Direct AI Audio Listening and Automatic Translation using Gemini 3.8 Flash
+app.post("/api/ai/listen-audio", async (req: Request, res: Response) => {
+  try {
+    const { audioBase64, mimeType = "audio/webm", expectedLanguage = "auto" } = req.body;
+
+    if (!audioBase64 || typeof audioBase64 !== "string") {
+      return res.status(400).json({ error: "Missing or invalid audioBase64" });
+    }
+
+    const ai = getGeminiClient();
+    if (!ai) {
+      return res.status(503).json({
+        error: "Gemini AI not initialized. Please ensure GEMINI_API_KEY is available.",
+      });
+    }
+
+    // Clean up mimeType and base64 string
+    const cleanMime = (mimeType.split(";")[0] || "audio/webm").trim();
+    const cleanBase64 = audioBase64.replace(/^data:[^;]+;base64,/, "");
+
+    const prompt = `You are an AI real-time audio listener and live translator in a video call between a person in Colombia (speaking Colombian Spanish) and a person in Boston, USA (speaking American English).
+Listen carefully to the spoken voice in this audio:
+1. Transcribe the exact human speech spoken in the audio in its original language.
+2. Detect the spoken language: "es" for Spanish, "en" for English.
+3. Automatically translate what was spoken:
+   - If spoken in Spanish (Colombia) -> translate into natural conversational American English.
+   - If spoken in English (Boston) -> translate into natural conversational Colombian Spanish.
+4. If there is no audible human speech (only silence, clicks, or background static), set "hasSpeech" to false and return empty strings.
+
+Return ONLY a JSON object with this exact schema:
+{
+  "hasSpeech": boolean,
+  "originalText": string,
+  "detectedLanguage": "es" | "en",
+  "translatedText": string,
+  "targetLanguage": "es" | "en"
+}`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.8-flash",
+      contents: [
+        {
+          inlineData: {
+            mimeType: cleanMime,
+            data: cleanBase64,
+          },
+        },
+        {
+          text: prompt,
+        },
+      ],
+      config: {
+        responseMimeType: "application/json",
+      },
+    });
+
+    const responseText = response.text?.trim() || "{}";
+    let parsed: any;
+    try {
+      parsed = JSON.parse(responseText);
+    } catch {
+      const match = responseText.match(/\{[\s\S]*\}/);
+      if (match) {
+        parsed = JSON.parse(match[0]);
+      } else {
+        parsed = { hasSpeech: false };
+      }
+    }
+
+    if (!parsed.hasSpeech || !parsed.originalText?.trim()) {
+      return res.json({
+        hasSpeech: false,
+        originalText: "",
+        translatedText: "",
+        detectedLanguage: expectedLanguage === "auto" ? "es" : expectedLanguage,
+        targetLanguage: expectedLanguage === "es" ? "en" : "es",
+        provider: "gemini-3.8-flash",
+      });
+    }
+
+    return res.json({
+      hasSpeech: true,
+      originalText: parsed.originalText.trim(),
+      detectedLanguage: parsed.detectedLanguage === "en" ? "en" : "es",
+      translatedText: (parsed.translatedText || "").trim(),
+      targetLanguage: parsed.detectedLanguage === "en" ? "es" : "en",
+      provider: "gemini-3.8-flash",
+    });
+  } catch (err: any) {
+    console.error("Audio processing with Gemini error:", err);
+    return res.status(500).json({ error: err.message || "Failed to process audio with Gemini" });
   }
 });
 

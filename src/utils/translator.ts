@@ -8,6 +8,37 @@ export interface TranslationResponse {
   provider: "gemini" | "local-rule";
 }
 
+export interface AiAudioTranslationResponse {
+  hasSpeech: boolean;
+  originalText: string;
+  detectedLanguage: LanguageCode;
+  translatedText: string;
+  targetLanguage: LanguageCode;
+  provider: string;
+}
+
+export async function requestAiAudioTranscriptionAndTranslation(
+  audioBase64: string,
+  mimeType = "audio/webm",
+  expectedLanguage: LanguageCode | "auto" = "auto"
+): Promise<AiAudioTranslationResponse> {
+  const res = await fetch("/api/ai/listen-audio", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      audioBase64,
+      mimeType,
+      expectedLanguage,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`AI audio endpoint returned ${res.status}`);
+  }
+
+  return await res.json();
+}
+
 export async function requestTranslation(
   text: string,
   sourceLang: LanguageCode | "auto",
