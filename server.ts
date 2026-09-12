@@ -318,19 +318,56 @@ const usersDatabase: Map<string, StoredUser> = new Map([
 
 // Auth API: Login
 app.post("/api/auth/login", (req: Request, res: Response) => {
-  const { username, password } = req.body;
+  const { username, password, locationName, city, countryCode, latitude, longitude } = req.body;
   if (!username || !password) {
     return res.status(400).json({ error: "Por favor ingresa usuario y contraseña." });
   }
 
   const cleanUser = String(username).trim().toLowerCase();
-  const user = usersDatabase.get(cleanUser);
+  let user = usersDatabase.get(cleanUser);
 
-  if (!user || user.passwordHash !== String(password).trim()) {
-    return res.status(401).json({ error: "Usuario o contraseña incorrectos. (Prueba con 'colombia' / '123456' o 'sarah' / '123456')" });
+  // If user doesn't exist, allow auto-registration or check password
+  if (!user) {
+    // Auto-create user with detected location if none exists yet
+    const isBoston = countryCode === "US" || (locationName && locationName.includes("Estados Unidos"));
+    user = {
+      id: `user-${Date.now()}`,
+      username: cleanUser,
+      passwordHash: String(password).trim(),
+      displayName: cleanUser.charAt(0).toUpperCase() + cleanUser.slice(1),
+      role: isBoston ? "boston" : "colombia",
+      locationName: locationName || (isBoston ? "Boston, Massachusetts, EE. UU." : "Bogotá, Colombia"),
+      city: city || (isBoston ? "Boston" : "Bogotá"),
+      countryCode: isBoston ? "US" : "CO",
+      nativeLanguage: isBoston ? "en" : "es",
+      targetLanguage: isBoston ? "es" : "en",
+      avatarUrl: isBoston
+        ? "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300&auto=format&fit=crop&q=80"
+        : "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80",
+      latitude: typeof latitude === "number" ? latitude : undefined,
+      longitude: typeof longitude === "number" ? longitude : undefined,
+      lastLoginAt: new Date().toISOString(),
+    };
+    usersDatabase.set(cleanUser, user);
+  } else {
+    if (user.passwordHash !== String(password).trim()) {
+      return res.status(401).json({ error: "Contraseña incorrecta." });
+    }
+
+    // Update with current detected location upon login
+    if (locationName) user.locationName = locationName;
+    if (city) user.city = city;
+    if (countryCode) {
+      user.countryCode = countryCode === "US" ? "US" : "CO";
+      user.role = countryCode === "US" ? "boston" : "colombia";
+      user.nativeLanguage = countryCode === "US" ? "en" : "es";
+      user.targetLanguage = countryCode === "US" ? "es" : "en";
+    }
+    if (typeof latitude === "number") user.latitude = latitude;
+    if (typeof longitude === "number") user.longitude = longitude;
+    user.lastLoginAt = new Date().toISOString();
   }
 
-  user.lastLoginAt = new Date().toISOString();
   return res.json({
     success: true,
     user: {
@@ -353,24 +390,24 @@ app.post("/api/auth/login", (req: Request, res: Response) => {
 
 // Auth API: Register
 app.post("/api/auth/register", (req: Request, res: Response) => {
-  const { username, password, displayName, role, city, countryCode } = req.body;
-  if (!username || !password || !displayName) {
+  const { username, password, displayName, role, city, countryCode, locationName, latitude, longitude } = req.body;
+  if (!username || !password) {
     return res.status(400).json({ error: "Completa los campos requeridos." });
   }
 
   const cleanUser = String(username).trim().toLowerCase();
   if (usersDatabase.has(cleanUser)) {
-    return res.status(400).json({ error: "Este nombre de usuario ya existe." });
+    return res.status(400).json({ error: "Este nombre de usuario ya existe. Si es tuyo, puedes iniciar sesión." });
   }
 
-  const isBoston = role === "boston" || countryCode === "US";
+  const isBoston = role === "boston" || countryCode === "US" || (locationName && locationName.includes("Estados Unidos"));
   const newUser: StoredUser = {
     id: `user-${Date.now()}`,
     username: cleanUser,
     passwordHash: String(password).trim(),
-    displayName: String(displayName).trim(),
+    displayName: displayName ? String(displayName).trim() : cleanUser.charAt(0).toUpperCase() + cleanUser.slice(1),
     role: isBoston ? "boston" : "colombia",
-    locationName: isBoston ? `${city || "Boston"}, EE. UU.` : `${city || "Bogotá"}, Colombia`,
+    locationName: locationName || (isBoston ? `${city || "Boston"}, EE. UU.` : `${city || "Bogotá"}, Colombia`),
     city: city || (isBoston ? "Boston" : "Bogotá"),
     countryCode: isBoston ? "US" : "CO",
     nativeLanguage: isBoston ? "en" : "es",
@@ -378,6 +415,8 @@ app.post("/api/auth/register", (req: Request, res: Response) => {
     avatarUrl: isBoston
       ? "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300&auto=format&fit=crop&q=80"
       : "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80",
+    latitude: typeof latitude === "number" ? latitude : undefined,
+    longitude: typeof longitude === "number" ? longitude : undefined,
     lastLoginAt: new Date().toISOString(),
   };
 
@@ -396,6 +435,8 @@ app.post("/api/auth/register", (req: Request, res: Response) => {
       nativeLanguage: newUser.nativeLanguage,
       targetLanguage: newUser.targetLanguage,
       avatarUrl: newUser.avatarUrl,
+      latitude: newUser.latitude,
+      longitude: newUser.longitude,
       lastLoginAt: newUser.lastLoginAt,
     },
   });
@@ -416,6 +457,52 @@ app.post("/api/auth/update-location", (req: Request, res: Response) => {
     return res.json({ success: true, user });
   }
   return res.status(404).json({ error: "User not found" });
+});
+
+// API to list all database users (useful for Google Sheets table sync)
+app.get("/api/sheets/users", (req: Request, res: Response) => {
+  const usersList: any[] = [];
+  for (const user of usersDatabase.values()) {
+    usersList.push({
+      usuario: user.username,
+      contrasena: user.passwordHash,
+      ubicacion: user.locationName,
+      pais: user.countryCode === "US" ? "Estados Unidos" : "Colombia",
+      fechaRegistro: user.lastLoginAt || new Date().toISOString(),
+    });
+  }
+  return res.json({ users: usersList });
+});
+
+// API to receive synchronized users from Google Sheets
+app.post("/api/sheets/sync-users", (req: Request, res: Response) => {
+  const { rows } = req.body;
+  if (Array.isArray(rows)) {
+    for (const row of rows) {
+      if (!row.usuario) continue;
+      const clean = String(row.usuario).trim().toLowerCase();
+      const isBoston = row.pais?.includes("US") || row.ubicacion?.includes("Estados Unidos") || row.ubicacion?.includes("Boston");
+      if (!usersDatabase.has(clean)) {
+        usersDatabase.set(clean, {
+          id: `sheet-user-${Date.now()}-${clean}`,
+          username: clean,
+          passwordHash: String(row.contrasena || "123456").trim(),
+          displayName: clean.charAt(0).toUpperCase() + clean.slice(1),
+          role: isBoston ? "boston" : "colombia",
+          locationName: row.ubicacion || (isBoston ? "Boston, EE. UU." : "Colombia"),
+          city: isBoston ? "Boston" : "Bogotá",
+          countryCode: isBoston ? "US" : "CO",
+          nativeLanguage: isBoston ? "en" : "es",
+          targetLanguage: isBoston ? "es" : "en",
+          avatarUrl: isBoston
+            ? "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300&auto=format&fit=crop&q=80"
+            : "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80",
+          lastLoginAt: row.fechaRegistro || new Date().toISOString(),
+        });
+      }
+    }
+  }
+  return res.json({ success: true, count: usersDatabase.size });
 });
 
 // API: Health check

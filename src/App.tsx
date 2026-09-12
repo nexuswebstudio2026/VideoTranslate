@@ -7,6 +7,7 @@ import { TranscriptDrawer } from "./components/TranscriptDrawer";
 import { SettingsModal } from "./components/SettingsModal";
 import { LoginModal } from "./components/LoginModal";
 import { PermissionRequestModal } from "./components/PermissionRequestModal";
+import { GoogleSheetsModal } from "./components/GoogleSheetsModal";
 import { useWebRTC } from "./hooks/useWebRTC";
 import { useSpeechRecognition } from "./hooks/useSpeechRecognition";
 import {
@@ -83,6 +84,7 @@ export default function App() {
   const [translationTone, setTranslationTone] = useState<"friendly" | "neutral" | "exact">("friendly");
   const [isTranscriptOpen, setIsTranscriptOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSheetsModalOpen, setIsSheetsModalOpen] = useState(false);
 
   // Remote simulation speech state
   const [remoteSpeaking, setRemoteSpeaking] = useState(false);
@@ -327,6 +329,7 @@ export default function App() {
         roomId="boston-colombia"
         onOpenTranscript={() => setIsTranscriptOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenSheets={() => setIsSheetsModalOpen(true)}
         transcriptCount={subtitles.length}
         autoSpeak={autoSpeak}
         onToggleAutoSpeak={() => setAutoSpeak((v) => !v)}
@@ -573,6 +576,14 @@ export default function App() {
       <LoginModal
         isOpen={isLoginModalOpen}
         onLoginSuccess={handleLoginSuccess}
+        isDark={isDark}
+        onOpenSheetsModal={() => setIsSheetsModalOpen(true)}
+      />
+
+      {/* Google Sheets Database Viewer and Sync Modal */}
+      <GoogleSheetsModal
+        isOpen={isSheetsModalOpen}
+        onClose={() => setIsSheetsModalOpen(false)}
         isDark={isDark}
       />
 

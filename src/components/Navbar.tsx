@@ -13,6 +13,7 @@ import {
   User,
   LogOut,
   MapPin,
+  FileSpreadsheet,
 } from "lucide-react";
 import { AppTheme, UserAccount } from "../types";
 
@@ -22,6 +23,7 @@ interface NavbarProps {
   roomId: string;
   onOpenTranscript: () => void;
   onOpenSettings: () => void;
+  onOpenSheets?: () => void;
   transcriptCount: number;
   autoSpeak: boolean;
   onToggleAutoSpeak: () => void;
@@ -36,6 +38,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   roomId,
   onOpenTranscript,
   onOpenSettings,
+  onOpenSheets,
   transcriptCount,
   autoSpeak,
   onToggleAutoSpeak,
@@ -236,6 +239,23 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             )}
           </button>
+
+          {/* Google Sheets Database */}
+          {onOpenSheets && (
+            <button
+              id="open-sheets-btn"
+              onClick={onOpenSheets}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                isDark
+                  ? "bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-500/40"
+                  : "bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300"
+              }`}
+              title="Base de Datos en Google Sheets (Usuario, Contraseña, Ubicación)"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+              <span className="hidden xl:inline">Google Sheets</span>
+            </button>
+          )}
 
           {/* Settings modal */}
           <button
