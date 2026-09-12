@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from "react";
-import { Mic, MicOff, Video, VideoOff, Volume2, Sparkles, MapPin } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, Volume2, Sparkles, MapPin, Radio } from "lucide-react";
 import { Participant, SubtitleItem, AppTheme } from "../types";
 import { CaptionBanner } from "./CaptionBanner";
 
@@ -13,6 +13,7 @@ interface VideoFeedProps {
   isSimulated?: boolean;
   onSimulatedSpeak?: () => void;
   captionFontSize?: "sm" | "base" | "lg" | "xl";
+  isPeerOnline?: boolean;
 }
 
 export const VideoFeed: React.FC<VideoFeedProps> = ({
@@ -24,6 +25,7 @@ export const VideoFeed: React.FC<VideoFeedProps> = ({
   theme,
   isSimulated = false,
   captionFontSize = "base",
+  isPeerOnline = false,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const isDark = theme === "dark";
@@ -62,10 +64,10 @@ export const VideoFeed: React.FC<VideoFeedProps> = ({
               isLocal ? "scale-x-[-1]" : ""
             }`}
           />
-        ) : isSimulated ? (
-          // Simulated Boston Friend video screen with ambient motion
+        ) : (
+          // Video avatar screen with ambient motion
           <div className="relative w-full h-full flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 via-indigo-950/80 to-slate-950">
-            {/* Ambient Boston skyline subtle backdrop */}
+            {/* Ambient skyline subtle backdrop */}
             <div className="absolute inset-0 opacity-20 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-400 via-slate-800 to-transparent" />
 
             {/* Avatar with speaking wave aura */}
@@ -100,20 +102,18 @@ export const VideoFeed: React.FC<VideoFeedProps> = ({
                 <h3 className="text-lg font-bold text-white tracking-tight flex items-center justify-center gap-1.5">
                   {participant.name}
                 </h3>
-                <p className="text-xs text-indigo-300/90 font-medium">
-                  {participant.city}, {participant.location}
+                <p className="text-xs text-indigo-300/90 font-medium flex items-center justify-center gap-1">
+                  <MapPin className="w-3.5 h-3.5 text-rose-400" />
+                  <span>{participant.city || participant.location}</span>
                 </p>
+                {!isLocal && (
+                  <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 font-semibold mt-1 px-2 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-500/30">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    {isPeerOnline ? "Conectada en vivo" : "Lista para llamada bilateral"}
+                  </span>
+                )}
               </div>
             </div>
-          </div>
-        ) : (
-          // Camera disabled / loading placeholder
-          <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900 text-slate-400 p-6 text-center">
-            <div className="w-20 h-20 rounded-full bg-slate-800 border-2 border-slate-700 flex items-center justify-center mb-3">
-              <VideoOff className="w-8 h-8 text-slate-500" />
-            </div>
-            <p className="text-sm font-semibold text-slate-300">{participant.name}</p>
-            <p className="text-xs text-slate-500 mt-1">Cámara desactivada</p>
           </div>
         )}
       </div>
@@ -139,76 +139,63 @@ export const VideoFeed: React.FC<VideoFeedProps> = ({
         <div className="flex items-center gap-2">
           {/* 5-bar live equalizer */}
           <div
-            className={`flex items-end gap-0.5 px-2 py-1.5 rounded-full backdrop-blur-md border ${
-              participant.isSpeaking
-                ? "bg-amber-500/20 border-amber-400/50"
-                : "bg-slate-900/70 border-slate-700/70"
-            }`}
-            title={`Nivel de audio: ${participant.audioLevel}%`}
+            className="flex items-end gap-0.5 h-4 px-1.5 py-0.5 rounded-md bg-slate-900/80 backdrop-blur-md border border-slate-700/80"
+            title={`Nivel de voz: ${participant.audioLevel}%`}
           >
             {[1, 2, 3, 4, 5].map((bar) => {
-              const active =
-                participant.isSpeaking &&
-                participant.audioLevel > bar * 15;
+              const active = participant.audioLevel >= bar * 18;
               return (
-                <span
+                <div
                   key={bar}
-                  className={`w-1 rounded-full transition-all duration-100 ${
+                  className={`w-1 rounded-full transition-all duration-75 ${
                     active
-                      ? "bg-amber-400 h-4"
-                      : "bg-slate-500 h-1.5 opacity-40"
+                      ? "bg-gradient-to-t from-emerald-400 to-amber-300"
+                      : "bg-slate-700"
                   }`}
                   style={{
                     height: active
-                      ? `${Math.max(6, (participant.audioLevel / 100) * 16 + bar * 2)}px`
-                      : "4px",
+                      ? `${Math.max(20, Math.min(100, participant.audioLevel))}%`
+                      : "25%",
                   }}
                 />
               );
             })}
           </div>
 
-          {/* Mic status indicator */}
+          {/* Mic indicator badge */}
           <div
-            className={`w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-md border ${
+            className={`p-1.5 rounded-full backdrop-blur-md border ${
               participant.isMuted
-                ? "bg-rose-500/20 border-rose-500/50 text-rose-400"
-                : "bg-slate-900/80 border-slate-700 text-slate-300"
+                ? "bg-rose-500/20 border-rose-500/40 text-rose-400"
+                : "bg-emerald-500/20 border-emerald-500/40 text-emerald-400"
             }`}
           >
             {participant.isMuted ? (
               <MicOff className="w-3.5 h-3.5" />
             ) : (
-              <Mic className="w-3.5 h-3.5 text-emerald-400" />
+              <Mic className="w-3.5 h-3.5" />
             )}
           </div>
         </div>
       </div>
 
-      {/* Bottom Overlay: Direct Lower-Third Subtitle & Translation */}
-      <div className="relative z-10 p-3 sm:p-4 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
-        {hasSubtitleForThisFeed ? (
+      {/* Bottom Overlay: Live Captions and Subtitles */}
+      <div className="relative z-10 p-3 sm:p-4">
+        {hasSubtitleForThisFeed && activeSubtitle ? (
           <CaptionBanner
             subtitle={activeSubtitle}
-            interimText={interimText}
-            isSpeaking={participant.isSpeaking}
-            theme="dark" // Over video feeds we use dark frosted banner for crisp contrast
+            theme={theme}
             fontSize={captionFontSize}
-            showAudioButton={true}
           />
-        ) : (
-          <div className="px-3 py-2 rounded-xl bg-black/40 backdrop-blur-xs border border-white/10 text-[11px] text-slate-400 flex items-center justify-between">
-            <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-              <span>
-                Cámara de {participant.city} lista · Reconocimiento instantáneo
-              </span>
-            </span>
-            <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
-              HD 1080p
-            </span>
+        ) : isLocal && interimText ? (
+          <div className="p-3 rounded-2xl bg-black/70 backdrop-blur-md border border-amber-400/40 text-white animate-pulse">
+            <div className="flex items-center gap-1.5 text-xs text-amber-300 font-semibold mb-1">
+              <Sparkles className="w-3.5 h-3.5 animate-spin" />
+              <span>Escuchando tu voz...</span>
+            </div>
+            <p className="text-sm italic">"{interimText}"</p>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

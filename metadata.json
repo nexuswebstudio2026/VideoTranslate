@@ -3,7 +3,8 @@
   "description": "Plataforma elegante de videollamadas con detección de voz y subtítulos con traducción instantánea en tiempo real entre Colombia (Español) y Boston (Inglés), con modo día y noche.",
   "requestFramePermissions": [
     "camera",
-    "microphone"
+    "microphone",
+    "geolocation"
   ],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { RoomConnectionState, SubtitleItem } from "../types";
+import { RoomConnectionState, SubtitleItem, PermissionsState } from "../types";
 
 interface UseWebRTCOptions {
   roomId: string;
@@ -8,6 +8,7 @@ interface UseWebRTCOptions {
   location: string;
   language: string;
   onRemoteSubtitleReceived?: (item: SubtitleItem) => void;
+  onRemoteUserUpdate?: (user: { userId: string; userName: string; location: string; language: string }) => void;
 }
 
 export function useWebRTC({
@@ -17,6 +18,7 @@ export function useWebRTC({
   location,
   language,
   onRemoteSubtitleReceived,
+  onRemoteUserUpdate,
 }: UseWebRTCOptions) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -28,6 +30,12 @@ export function useWebRTC({
   const [isCameraLoading, setIsCameraLoading] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
 
+  const [permissions, setPermissions] = useState<PermissionsState>({
+    camera: "prompt",
+    microphone: "prompt",
+    location: "prompt",
+  });
+
   const [connectionState, setConnectionState] = useState<RoomConnectionState>({
     roomId,
     connected: false,
@@ -35,6 +43,13 @@ export function useWebRTC({
     isConnecting: true,
     participantCount: 1,
   });
+
+  const [remotePeerInfo, setRemotePeerInfo] = useState<{
+    userId: string;
+    userName: string;
+    location: string;
+    language: string;
+  } | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -46,12 +61,22 @@ export function useWebRTC({
   const onRemoteSubtitleRef = useRef(onRemoteSubtitleReceived);
   onRemoteSubtitleRef.current = onRemoteSubtitleReceived;
 
-  // Initialize Local Media Stream
-  const initLocalStream = useCallback(async () => {
+  const onRemoteUserUpdateRef = useRef(onRemoteUserUpdate);
+  onRemoteUserUpdateRef.current = onRemoteUserUpdate;
+
+  // Request All 3 Permissions: Camera, Microphone, Geolocation
+  const requestMediaAndPermissions = useCallback(async () => {
     setIsCameraLoading(true);
     setCameraError(null);
+
+    let stream: MediaStream | null = null;
+    let cameraGranted = false;
+    let micGranted = false;
+    let locationGranted = false;
+
+    // 1. Request Camera & Mic
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 1280 },
           height: { ideal: 720 },
@@ -68,44 +93,175 @@ export function useWebRTC({
       setLocalStream(stream);
       setIsCameraActive(true);
       setIsMicMuted(false);
+      cameraGranted = true;
+      micGranted = true;
 
-      // Setup audio analyzer for volume meter
+      // Setup audio level analyzer
       try {
-        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const source = audioCtx.createMediaStreamSource(stream);
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 64;
-        source.connect(analyser);
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          const audioCtx = new AudioCtx();
+          audioContextRef.current = audioCtx;
+          const source = audioCtx.createMediaStreamSource(stream);
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 64;
+          source.connect(analyser);
+          analyserRef.current = analyser;
 
-        audioContextRef.current = audioCtx;
-        analyserRef.current = analyser;
-
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-        const updateMeter = () => {
-          if (analyserRef.current && !stream.getAudioTracks()[0]?.enabled === false) {
-            analyserRef.current.getByteFrequencyData(dataArray);
-            let sum = 0;
-            for (let i = 0; i < dataArray.length; i++) {
-              sum += dataArray[i];
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          const updateMeter = () => {
+            if (analyserRef.current && stream?.getAudioTracks()[0]?.enabled) {
+              analyserRef.current.getByteFrequencyData(dataArray);
+              let sum = 0;
+              for (let i = 0; i < dataArray.length; i++) {
+                sum += dataArray[i];
+              }
+              const average = sum / dataArray.length;
+              setLocalAudioLevel(Math.min(100, Math.round((average / 128) * 100)));
+            } else {
+              setLocalAudioLevel(0);
             }
-            const average = sum / dataArray.length;
-            setLocalAudioLevel(Math.min(100, Math.round((average / 128) * 100)));
-          } else {
-            setLocalAudioLevel(0);
-          }
-          animFrameRef.current = requestAnimationFrame(updateMeter);
-        };
-        updateMeter();
+            animFrameRef.current = requestAnimationFrame(updateMeter);
+          };
+          updateMeter();
+        }
       } catch (audioErr) {
-        console.warn("Audio meter setup warning:", audioErr);
+        console.warn("Audio meter setup note:", audioErr);
       }
     } catch (err: any) {
-      console.warn("Could not access camera/mic:", err);
+      console.warn("Media permission not fully granted:", err);
       setCameraError(err.message || "Permiso de cámara o micrófono no concedido");
-    } finally {
-      setIsCameraLoading(false);
     }
-  }, []);
+
+    // 2. Request Geolocation
+    if (typeof navigator !== "undefined" && "geolocation" in navigator) {
+      try {
+        const geoPromise = new Promise<{ latitude: number; longitude: number }>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              resolve({
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+              });
+            },
+            (err) => reject(err),
+            { timeout: 8000, enableHighAccuracy: false }
+          );
+        });
+
+        const coords = await geoPromise;
+        locationGranted = true;
+
+        setPermissions((prev) => ({
+          ...prev,
+          camera: cameraGranted ? "granted" : "denied",
+          microphone: micGranted ? "granted" : "denied",
+          location: "granted",
+          coordinates: coords,
+          locationName: `${coords.latitude.toFixed(2)}°, ${coords.longitude.toFixed(2)}°`,
+        }));
+
+        // Send location update to server
+        fetch("/api/auth/update-location", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: userId,
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+          }),
+        }).catch(() => {});
+      } catch (geoErr) {
+        console.warn("Geolocation permission note:", geoErr);
+        setPermissions((prev) => ({
+          ...prev,
+          camera: cameraGranted ? "granted" : "denied",
+          microphone: micGranted ? "granted" : "denied",
+          location: "denied",
+        }));
+      }
+    } else {
+      setPermissions((prev) => ({
+        ...prev,
+        camera: cameraGranted ? "granted" : "denied",
+        microphone: micGranted ? "granted" : "denied",
+        location: "denied",
+      }));
+    }
+
+    setIsCameraLoading(false);
+    return stream;
+  }, [userId]);
+
+  // Set up WebRTC PeerConnection and Signaling over WebSocket
+  const setupPeerConnection = useCallback((peerWs: WebSocket, isCaller: boolean) => {
+    try {
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: "stun:stun.l.google.com:19302" },
+          { urls: "stun:global.stun.twilio.com:3478" },
+        ],
+      });
+
+      peerConnectionRef.current = pc;
+
+      // Add local stream tracks to PeerConnection
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => {
+          pc.addTrack(track, localStreamRef.current!);
+        });
+      }
+
+      // Handle remote tracks
+      pc.ontrack = (event) => {
+        if (event.streams && event.streams[0]) {
+          setRemoteStream(event.streams[0]);
+          setConnectionState((prev) => ({ ...prev, peerConnected: true }));
+        }
+      };
+
+      // Handle ICE Candidates
+      pc.onicecandidate = (event) => {
+        if (event.candidate && peerWs.readyState === WebSocket.OPEN) {
+          peerWs.send(
+            JSON.stringify({
+              type: "signal:ice-candidate",
+              roomId,
+              payload: { candidate: event.candidate },
+            })
+          );
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === "connected") {
+          setConnectionState((prev) => ({ ...prev, peerConnected: true }));
+        } else if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+          setConnectionState((prev) => ({ ...prev, peerConnected: false }));
+        }
+      };
+
+      // If caller, create and send WebRTC offer
+      if (isCaller) {
+        pc.createOffer()
+          .then((offer) => pc.setLocalDescription(offer))
+          .then(() => {
+            if (peerWs.readyState === WebSocket.OPEN) {
+              peerWs.send(
+                JSON.stringify({
+                  type: "signal:offer",
+                  roomId,
+                  payload: { sdp: pc.localDescription },
+                })
+              );
+            }
+          })
+          .catch((err) => console.warn("Create offer error:", err));
+      }
+    } catch (e) {
+      console.warn("RTCPeerConnection setup error:", e);
+    }
+  }, [roomId]);
 
   // Initialize WebSocket connection for room signaling
   useEffect(() => {
@@ -119,7 +275,7 @@ export function useWebRTC({
 
       ws.onopen = () => {
         setConnectionState((prev) => ({ ...prev, connected: true, isConnecting: false }));
-        // Join room
+        // Join room with user credentials
         ws.send(
           JSON.stringify({
             type: "join",
@@ -134,28 +290,69 @@ export function useWebRTC({
         );
       };
 
-      ws.onmessage = (event) => {
+      ws.onmessage = async (event) => {
         try {
           const msg = JSON.parse(event.data);
+
           if (msg.type === "joined") {
-            const count = (msg.payload.participants?.length || 0) + 1;
+            const participants = msg.payload.participants || [];
+            const count = participants.length + 1;
             setConnectionState((prev) => ({
               ...prev,
               participantCount: count,
               peerConnected: count > 1,
             }));
+
+            if (participants.length > 0) {
+              const peer = participants[0];
+              setRemotePeerInfo(peer);
+              onRemoteUserUpdateRef.current?.(peer);
+              // Second user to enter connects as caller to existing peer
+              setupPeerConnection(ws, true);
+            }
           } else if (msg.type === "peer:joined") {
+            const peer = msg.payload;
+            setRemotePeerInfo(peer);
+            onRemoteUserUpdateRef.current?.(peer);
             setConnectionState((prev) => ({
               ...prev,
               participantCount: prev.participantCount + 1,
               peerConnected: true,
             }));
+            // Existing user prepares peer connection receiver
+            setupPeerConnection(ws, false);
           } else if (msg.type === "peer:left") {
+            setRemotePeerInfo(null);
+            setRemoteStream(null);
             setConnectionState((prev) => ({
               ...prev,
               participantCount: Math.max(1, prev.participantCount - 1),
-              peerConnected: prev.participantCount - 1 > 1,
+              peerConnected: false,
             }));
+          } else if (msg.type === "signal:offer") {
+            const pc = peerConnectionRef.current;
+            if (pc) {
+              await pc.setRemoteDescription(new RTCSessionDescription(msg.payload.sdp));
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              ws.send(
+                JSON.stringify({
+                  type: "signal:answer",
+                  roomId,
+                  payload: { sdp: answer },
+                })
+              );
+            }
+          } else if (msg.type === "signal:answer") {
+            const pc = peerConnectionRef.current;
+            if (pc) {
+              await pc.setRemoteDescription(new RTCSessionDescription(msg.payload.sdp));
+            }
+          } else if (msg.type === "signal:ice-candidate") {
+            const pc = peerConnectionRef.current;
+            if (pc && msg.payload.candidate) {
+              await pc.addIceCandidate(new RTCIceCandidate(msg.payload.candidate));
+            }
           } else if (msg.type === "subtitle:broadcast") {
             onRemoteSubtitleRef.current?.(msg.payload);
           }
@@ -179,8 +376,12 @@ export function useWebRTC({
       if (ws) {
         ws.close();
       }
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+      }
     };
-  }, [roomId, userId, userName, location, language]);
+  }, [roomId, userId, userName, location, language, setupPeerConnection]);
 
   // Toggle Camera
   const toggleCamera = useCallback(() => {
@@ -215,10 +416,10 @@ export function useWebRTC({
           video: true,
         });
         const screenTrack = screenStream.getVideoTracks()[0];
-        
+
         screenTrack.onended = () => {
           setIsScreenSharing(false);
-          initLocalStream();
+          requestMediaAndPermissions();
         };
 
         if (localStreamRef.current) {
@@ -235,9 +436,9 @@ export function useWebRTC({
       }
     } else {
       setIsScreenSharing(false);
-      initLocalStream();
+      requestMediaAndPermissions();
     }
-  }, [isScreenSharing, initLocalStream]);
+  }, [isScreenSharing, requestMediaAndPermissions]);
 
   // Broadcast subtitle to peer via WebSocket
   const broadcastSubtitle = useCallback(
@@ -255,23 +456,6 @@ export function useWebRTC({
     [roomId]
   );
 
-  // Initialize camera on mount
-  useEffect(() => {
-    initLocalStream();
-
-    return () => {
-      if (animFrameRef.current) {
-        cancelAnimationFrame(animFrameRef.current);
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close().catch(() => {});
-      }
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((t) => t.stop());
-      }
-    };
-  }, [initLocalStream]);
-
   return {
     localStream,
     remoteStream,
@@ -282,12 +466,15 @@ export function useWebRTC({
     remoteAudioLevel,
     isCameraLoading,
     cameraError,
+    permissions,
+    remotePeerInfo,
     connectionState,
     toggleCamera,
     toggleMic,
     toggleScreenShare,
     broadcastSubtitle,
-    reconnectCamera: initLocalStream,
+    requestMediaAndPermissions,
+    reconnectCamera: requestMediaAndPermissions,
     setRemoteAudioLevel,
   };
 }

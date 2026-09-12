@@ -10,8 +10,11 @@ import {
   FileText,
   Sliders,
   Sparkles,
+  User,
+  LogOut,
+  MapPin,
 } from "lucide-react";
-import { AppTheme } from "../types";
+import { AppTheme, UserAccount } from "../types";
 
 interface NavbarProps {
   theme: AppTheme;
@@ -22,6 +25,9 @@ interface NavbarProps {
   transcriptCount: number;
   autoSpeak: boolean;
   onToggleAutoSpeak: () => void;
+  currentUser: UserAccount | null;
+  onLogout: () => void;
+  onSwitchUserPrompt: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -33,6 +39,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   transcriptCount,
   autoSpeak,
   onToggleAutoSpeak,
+  currentUser,
+  onLogout,
+  onSwitchUserPrompt,
 }) => {
   const [copied, setCopied] = useState(false);
   const [timeColombia, setTimeColombia] = useState("");
@@ -146,6 +155,43 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Right side actions */}
         <div className="flex items-center gap-2">
+          {/* Current User Badge & Switcher */}
+          {currentUser && (
+            <div className="flex items-center gap-1.5">
+              <button
+                id="user-profile-badge"
+                type="button"
+                onClick={onSwitchUserPrompt}
+                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border text-xs transition-all ${
+                  currentUser.countryCode === "US"
+                    ? "bg-indigo-950/60 border-indigo-500/40 text-indigo-200 hover:bg-indigo-900/60"
+                    : "bg-emerald-950/60 border-emerald-500/40 text-emerald-200 hover:bg-emerald-900/60"
+                }`}
+                title="Haz clic para cambiar entre tu cuenta (Colombia) o la de tu amiga (Boston)"
+              >
+                <span className="text-base">{currentUser.countryCode === "US" ? "🇺🇸" : "🇨🇴"}</span>
+                <div className="flex flex-col text-left">
+                  <span className="font-bold leading-tight line-clamp-1">{currentUser.displayName}</span>
+                  <span className="text-[10px] text-slate-400 leading-tight">
+                    {currentUser.city || currentUser.locationName}
+                  </span>
+                </div>
+              </button>
+
+              <button
+                id="logout-btn"
+                type="button"
+                onClick={onLogout}
+                className={`p-2 rounded-xl text-slate-400 hover:text-rose-400 transition-colors ${
+                  isDark ? "hover:bg-slate-900" : "hover:bg-slate-100"
+                }`}
+                title="Cerrar sesión"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {/* Share room */}
           <button
             id="copy-room-link-btn"

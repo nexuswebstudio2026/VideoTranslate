@@ -5,7 +5,8 @@ import { CallControls } from "./components/CallControls";
 import { QuickPhraseBar } from "./components/QuickPhraseBar";
 import { TranscriptDrawer } from "./components/TranscriptDrawer";
 import { SettingsModal } from "./components/SettingsModal";
-import { CaptionBanner } from "./components/CaptionBanner";
+import { LoginModal } from "./components/LoginModal";
+import { PermissionRequestModal } from "./components/PermissionRequestModal";
 import { useWebRTC } from "./hooks/useWebRTC";
 import { useSpeechRecognition } from "./hooks/useSpeechRecognition";
 import {
@@ -13,16 +14,19 @@ import {
   SubtitleItem,
   AppTheme,
   ViewLayout,
+  UserAccount,
+  PermissionsState,
 } from "./types";
 import { requestTranslation, speakTranslation } from "./utils/translator";
 import {
   Sparkles,
   Wifi,
-  PhoneCall,
-  Info,
-  ShieldCheck,
   Languages,
   CheckCircle2,
+  MapPin,
+  Camera,
+  Mic,
+  ArrowLeftRight,
 } from "lucide-react";
 
 export default function App() {
@@ -42,6 +46,24 @@ export default function App() {
       return next;
     });
   };
+
+  // User session state (Username and password authentication)
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("voz_current_user");
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch {
+          // ignore
+        }
+      }
+    }
+    return null;
+  });
+
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(!currentUser);
+  const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
 
   // Subtitles and conversation history
   const [subtitles, setSubtitles] = useState<SubtitleItem[]>([]);
@@ -67,57 +89,34 @@ export default function App() {
   const [remoteAudioLvl, setRemoteAudioLvl] = useState(0);
   const remoteAnimTimer = useRef<any>(null);
 
-  // Participants
-  const localParticipant: Participant = {
-    id: "local-colombia",
-    name: "Tú",
-    location: "Colombia",
-    countryCode: "CO",
-    city: "Bogotá",
-    nativeLanguage: "es",
-    targetLanguage: "en",
-    avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80",
-    isMuted: false,
-    isVideoOff: false,
-    isSpeaking: false,
-    audioLevel: 0,
-  };
+  // Active user data defaults
+  const userRole = currentUser?.role || "colombia";
+  const isUserBoston = userRole === "boston";
 
-  const remoteParticipant: Participant = {
-    id: "remote-boston",
-    name: "Sarah Miller",
-    location: "Estados Unidos",
-    countryCode: "US",
-    city: "Boston, MA",
-    nativeLanguage: "en",
-    targetLanguage: "es",
-    avatarUrl: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300&auto=format&fit=crop&q=80",
-    isMuted: false,
-    isVideoOff: false,
-    isSpeaking: remoteSpeaking,
-    audioLevel: remoteAudioLvl,
-  };
-
-  // WebRTC Hook for Camera and WebSocket room signaling
+  // WebRTC Hook for Camera, Mic, Geolocation, and WebSocket room signaling
   const {
     localStream,
+    remoteStream,
     isCameraActive,
     isMicMuted,
     isScreenSharing,
     localAudioLevel,
     cameraError,
+    permissions,
+    remotePeerInfo,
     connectionState,
     toggleCamera,
     toggleMic,
     toggleScreenShare,
     broadcastSubtitle,
+    requestMediaAndPermissions,
     reconnectCamera,
   } = useWebRTC({
     roomId: "boston-colombia",
-    userId: "colombia-user",
-    userName: "Tú (Colombia)",
-    location: "Colombia",
-    language: "es",
+    userId: currentUser?.username || "colombia",
+    userName: currentUser?.displayName || "Tú (Colombia)",
+    location: currentUser?.locationName || (isUserBoston ? "Boston, EE. UU." : "Bogotá, Colombia"),
+    language: currentUser?.nativeLanguage || (isUserBoston ? "en" : "es"),
     onRemoteSubtitleReceived: (item) => {
       setActiveSubtitle(item);
       setSubtitles((prev) => [item, ...prev]);
@@ -127,13 +126,77 @@ export default function App() {
     },
   });
 
-  // Local participant enriched with dynamic stream state
-  localParticipant.isMuted = isMicMuted;
-  localParticipant.isVideoOff = !isCameraActive;
-  localParticipant.audioLevel = localAudioLevel;
-  localParticipant.isSpeaking = localAudioLevel > 15;
+  // Handle successful login
+  const handleLoginSuccess = async (user: UserAccount) => {
+    setCurrentUser(user);
+    localStorage.setItem("voz_current_user", JSON.stringify(user));
+    setIsLoginModalOpen(false);
+    setCurrentPerspective(user.role === "boston" ? "boston" : "colombia");
+
+    // Automatically prompt for Camera, Mic, and Location upon connecting
+    setIsPermissionModalOpen(true);
+    await requestMediaAndPermissions();
+  };
+
+  // Request permissions button callback
+  const handleGrantPermissions = async () => {
+    await requestMediaAndPermissions();
+    setIsPermissionModalOpen(false);
+  };
+
+  // Logout handler
+  const handleLogout = () => {
+    localStorage.removeItem("voz_current_user");
+    setCurrentUser(null);
+    setIsLoginModalOpen(true);
+  };
+
+  // Switch account easily
+  const handleSwitchAccount = () => {
+    setIsLoginModalOpen(true);
+  };
+
+  // Setup participants dynamically based on current user account
+  const localParticipant: Participant = {
+    id: currentUser ? `user-${currentUser.username}` : "local-user",
+    name: currentUser?.displayName || "Tú",
+    location: currentUser?.locationName || (isUserBoston ? "Boston, EE. UU." : "Colombia"),
+    countryCode: currentUser?.countryCode || (isUserBoston ? "US" : "CO"),
+    city: currentUser?.city || (isUserBoston ? "Boston, MA" : "Bogotá"),
+    nativeLanguage: currentUser?.nativeLanguage || (isUserBoston ? "en" : "es"),
+    targetLanguage: currentUser?.targetLanguage || (isUserBoston ? "es" : "en"),
+    avatarUrl:
+      currentUser?.avatarUrl ||
+      (isUserBoston
+        ? "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300&auto=format&fit=crop&q=80"
+        : "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80"),
+    isMuted: isMicMuted,
+    isVideoOff: !isCameraActive,
+    isSpeaking: localAudioLevel > 15,
+    audioLevel: localAudioLevel,
+  };
+
+  const remoteParticipant: Participant = {
+    id: remotePeerInfo?.userId || (isUserBoston ? "user-colombia" : "user-boston"),
+    name: remotePeerInfo?.userName || (isUserBoston ? "Compañero (Colombia)" : "Sarah Miller"),
+    location: remotePeerInfo?.location || (isUserBoston ? "Bogotá, Colombia" : "Estados Unidos"),
+    countryCode: isUserBoston ? "CO" : "US",
+    city: isUserBoston ? "Bogotá" : "Boston, MA",
+    nativeLanguage: (remotePeerInfo?.language as any) || (isUserBoston ? "es" : "en"),
+    targetLanguage: isUserBoston ? "en" : "es",
+    avatarUrl: isUserBoston
+      ? "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80"
+      : "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300&auto=format&fit=crop&q=80",
+    isMuted: false,
+    isVideoOff: false,
+    isSpeaking: remoteSpeaking,
+    audioLevel: remoteAudioLvl,
+  };
 
   // Speech Recognition Hook for live mic capture & instant translation with Gemini AI
+  const currentLang = localParticipant.nativeLanguage;
+  const targetLang = localParticipant.targetLanguage;
+
   const {
     isListening,
     interimText,
@@ -146,11 +209,11 @@ export default function App() {
     toggleListening,
     injectUtterance,
   } = useSpeechRecognition({
-    currentLanguage: "es",
-    targetLanguage: "en",
-    speakerId: "local-colombia",
-    speakerName: "Tú (Colombia)",
-    speakerLocation: "Bogotá, Colombia",
+    currentLanguage: currentLang,
+    targetLanguage: targetLang,
+    speakerId: localParticipant.id,
+    speakerName: localParticipant.name,
+    speakerLocation: localParticipant.location,
     mediaStream: localStream,
     autoSpeakTranslation: autoSpeak,
     onNewSubtitle: (item) => {
@@ -160,12 +223,12 @@ export default function App() {
     },
   });
 
-  // Automatically initiate AI audio listening when microphone is active
+  // Automatically start listening when media permissions are granted
   useEffect(() => {
-    if (localStream && !isMicMuted && !isListening) {
+    if (localStream && !isMicMuted && !isListening && currentUser) {
       startListening();
     }
-  }, [localStream, isMicMuted, isListening, startListening]);
+  }, [localStream, isMicMuted, isListening, startListening, currentUser]);
 
   // Call timer effect
   useEffect(() => {
@@ -182,10 +245,10 @@ export default function App() {
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Handle simulated Boston partner speaking
-  const triggerBostonSpeech = useCallback(
-    async (englishText: string) => {
-      if (!englishText.trim()) return;
+  // Handle remote partner speaking (simulated or remote trigger)
+  const triggerRemoteSpeech = useCallback(
+    async (text: string) => {
+      if (!text.trim()) return;
 
       // Animate speaking audio levels
       setRemoteSpeaking(true);
@@ -201,19 +264,27 @@ export default function App() {
         }
       }, 120);
 
-      // Translate from English (Boston) to Spanish (Colombia)
-      const res = await requestTranslation(englishText, "en", "es");
+      // Translate from remote native language to user's native language
+      const res = await requestTranslation(
+        text,
+        remoteParticipant.nativeLanguage,
+        localParticipant.nativeLanguage
+      );
 
       const item: SubtitleItem = {
-        id: `boston-${Date.now()}`,
-        speakerId: "remote-boston",
-        speakerName: "Sarah (Boston)",
-        speakerLocation: "Boston, EE. UU.",
-        originalText: englishText,
-        sourceLang: "en",
+        id: `peer-${Date.now()}`,
+        speakerId: remoteParticipant.id,
+        speakerName: remoteParticipant.name,
+        speakerLocation: remoteParticipant.location,
+        originalText: text,
+        sourceLang: remoteParticipant.nativeLanguage,
         translatedText: res.translatedText,
-        targetLang: "es",
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+        targetLang: localParticipant.nativeLanguage,
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
         isFinal: true,
       };
 
@@ -222,17 +293,16 @@ export default function App() {
       broadcastSubtitle(item);
 
       if (autoSpeak) {
-        // Read out Spanish translation to Colombian user
-        speakTranslation(res.translatedText, "es");
+        speakTranslation(res.translatedText, localParticipant.nativeLanguage);
       }
     },
-    [autoSpeak, broadcastSubtitle]
+    [autoSpeak, broadcastSubtitle, remoteParticipant, localParticipant]
   );
 
-  // Handle user speaking in Spanish (via quick phrase or simulated trigger)
-  const triggerColombiaSpeech = useCallback(
-    async (spanishText: string) => {
-      await injectUtterance(spanishText);
+  // Handle local user speaking
+  const triggerLocalSpeech = useCallback(
+    async (text: string) => {
+      await injectUtterance(text);
     },
     [injectUtterance]
   );
@@ -240,11 +310,6 @@ export default function App() {
   // Layout toggle handler
   const handleToggleLayout = () => {
     setViewLayout((prev) => (prev === "split" ? "remote-focus" : "split"));
-  };
-
-  // Perspective toggle handler
-  const handleTogglePerspective = () => {
-    setCurrentPerspective((prev) => (prev === "colombia" ? "boston" : "colombia"));
   };
 
   const isDark = theme === "dark";
@@ -265,6 +330,9 @@ export default function App() {
         transcriptCount={subtitles.length}
         autoSpeak={autoSpeak}
         onToggleAutoSpeak={() => setAutoSpeak((v) => !v)}
+        currentUser={currentUser}
+        onLogout={handleLogout}
+        onSwitchUserPrompt={handleSwitchAccount}
       />
 
       {/* Main Video Call Stage */}
@@ -281,24 +349,48 @@ export default function App() {
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
             <span className="font-semibold">Llamada en curso: {formatTimer(callSeconds)}</span>
             <span className="opacity-40">•</span>
-            <span className="text-slate-400">Canal Seguro P2P / WebRTC HD</span>
+            <span className="text-slate-400">
+              {connectionState.peerConnected ? "🟢 Conectados en Tiempo Real" : "🟡 Esperando a tu compañera"}
+            </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span
-              className={`px-2.5 py-1 rounded-full font-bold flex items-center gap-1.5 ${
-                currentPerspective === "colombia"
-                  ? "bg-amber-500/15 text-amber-300 border border-amber-500/30"
-                  : "bg-indigo-500/15 text-indigo-300 border border-indigo-500/30"
-              }`}
-            >
-              <Languages className="w-3.5 h-3.5" />
-              <span>
-                {currentPerspective === "colombia"
-                  ? "Viendo desde Colombia 🇨🇴 (Sarah habla en inglés y tú lees en español)"
-                  : "Viendo desde Boston 🇺🇸 (Tú hablas en español y Sarah lee en inglés)"}
+          <div className="flex items-center gap-3">
+            {/* Status of Permissions */}
+            <div className="hidden sm:flex items-center gap-2 text-[11px] text-slate-400">
+              <span className="flex items-center gap-1">
+                <Camera className={`w-3.5 h-3.5 ${permissions.camera === "granted" ? "text-emerald-400" : "text-amber-400"}`} />
+                Cámara
               </span>
-            </span>
+              <span>•</span>
+              <span className="flex items-center gap-1">
+                <Mic className={`w-3.5 h-3.5 ${permissions.microphone === "granted" ? "text-emerald-400" : "text-amber-400"}`} />
+                Micrófono
+              </span>
+              <span>•</span>
+              <span className="flex items-center gap-1">
+                <MapPin className={`w-3.5 h-3.5 ${permissions.location === "granted" ? "text-emerald-400" : "text-amber-400"}`} />
+                {currentUser?.city || "GPS"}
+              </span>
+            </div>
+
+            <button
+              id="switch-role-btn"
+              type="button"
+              onClick={handleSwitchAccount}
+              className={`px-2.5 py-1 rounded-full font-bold flex items-center gap-1.5 transition-all ${
+                currentUser?.role === "colombia"
+                  ? "bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:bg-amber-500/25"
+                  : "bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 hover:bg-indigo-500/25"
+              }`}
+              title="Cambiar entre la cuenta de Colombia y la de Boston"
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5" />
+              <span>
+                {currentUser?.role === "boston"
+                  ? "Conectado como Boston 🇺🇸 (Inglés ⇄ Español)"
+                  : "Conectado como Colombia 🇨🇴 (Español ⇄ Inglés)"}
+              </span>
+            </button>
           </div>
         </div>
 
@@ -382,24 +474,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Camera error message alert if permission denied */}
-        {cameraError && (
-          <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Info className="w-4 h-4 shrink-0" />
-              <span>
-                Acceso a cámara local: {cameraError}. ¡Puedes usar las frases de prueba abajo para experimentar la traducción instantánea en tiempo real!
-              </span>
-            </div>
-            <button
-              onClick={reconnectCamera}
-              className="px-3 py-1 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs shrink-0 hover:bg-amber-400 transition-all"
-            >
-              Reintentar Cámara
-            </button>
-          </div>
-        )}
-
         {/* Dual Video Grid Layout */}
         <div
           id="video-stage-container"
@@ -409,7 +483,7 @@ export default function App() {
               : "grid-cols-1"
           }`}
         >
-          {/* Colombian User Video Feed (Local or Perspective target) */}
+          {/* User Video Feed (Local) */}
           <div
             className={`w-full h-full ${
               viewLayout === "remote-focus" ? "hidden" : "block"
@@ -426,17 +500,22 @@ export default function App() {
             />
           </div>
 
-          {/* Boston Friend Video Feed (Remote) */}
+          {/* Peer Video Feed (Remote - Boston or Colombia) */}
           <div className="w-full h-full">
             <VideoFeed
               participant={remoteParticipant}
-              stream={null} // Simulated remote or WebRTC peer stream
+              stream={remoteStream}
               isLocal={false}
               activeSubtitle={activeSubtitle}
               theme={theme}
-              isSimulated={true}
+              isSimulated={!connectionState.peerConnected}
+              isPeerOnline={connectionState.peerConnected}
               onSimulatedSpeak={() =>
-                triggerBostonSpeech("Hey! It's so wonderful to talk to you today!")
+                triggerRemoteSpeech(
+                  currentUser?.role === "boston"
+                    ? "¡Hola! Qué gusto saludarte hoy desde Colombia."
+                    : "Hey! It's so wonderful to talk to you today!"
+                )
               }
               captionFontSize={captionFontSize}
             />
@@ -446,8 +525,8 @@ export default function App() {
         {/* Interactive Quick Phrase & Speech Simulator Bar */}
         <QuickPhraseBar
           theme={theme}
-          onSendLocalPhrase={triggerColombiaSpeech}
-          onSendRemotePhrase={triggerBostonSpeech}
+          onSendLocalPhrase={triggerLocalSpeech}
+          onSendRemotePhrase={triggerRemoteSpeech}
           isTranslating={isTranslating}
         />
 
@@ -458,22 +537,13 @@ export default function App() {
           isVideoOff={!isCameraActive}
           isListening={isListening}
           isScreenSharing={isScreenSharing}
-          autoSpeak={autoSpeak}
           viewLayout={viewLayout}
-          currentPerspective={currentPerspective}
-          aiStatus={aiStatus}
-          aiStatusMessage={aiStatusMessage}
           onToggleMic={toggleMic}
           onToggleVideo={toggleCamera}
           onToggleListening={toggleListening}
           onToggleScreenShare={toggleScreenShare}
-          onToggleAutoSpeak={() => setAutoSpeak((v) => !v)}
           onToggleLayout={handleToggleLayout}
-          onTogglePerspective={handleTogglePerspective}
-          onEndCall={() => {
-            setIsCallActive((v) => !v);
-          }}
-          onRestartDevices={reconnectCamera}
+          onEndCall={() => setIsCallActive(false)}
         />
       </main>
 
@@ -482,6 +552,7 @@ export default function App() {
         isOpen={isTranscriptOpen}
         onClose={() => setIsTranscriptOpen(false)}
         subtitles={subtitles}
+        onClear={() => setSubtitles([])}
         theme={theme}
       />
 
@@ -489,13 +560,29 @@ export default function App() {
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
-        theme={theme}
         captionFontSize={captionFontSize}
-        onChangeFontSize={setCaptionFontSize}
+        onChangeCaptionFontSize={setCaptionFontSize}
         autoSpeak={autoSpeak}
         onToggleAutoSpeak={() => setAutoSpeak((v) => !v)}
-        translationTone={translationTone}
+        tone={translationTone}
         onChangeTone={setTranslationTone}
+        theme={theme}
+      />
+
+      {/* Login & User Management Modal */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onLoginSuccess={handleLoginSuccess}
+        isDark={isDark}
+      />
+
+      {/* Camera, Microphone and Location Permissions Modal */}
+      <PermissionRequestModal
+        isOpen={isPermissionModalOpen}
+        permissions={permissions}
+        onRequestPermissions={handleGrantPermissions}
+        onSkip={() => setIsPermissionModalOpen(false)}
+        isDark={isDark}
       />
     </div>
   );

@@ -247,6 +247,177 @@ Return ONLY a JSON object with this exact schema:
   }
 });
 
+// In-memory persistent accounts database with initial profiles for Colombia and Boston
+interface StoredUser {
+  id: string;
+  username: string;
+  passwordHash: string; // Plain/simple comparison for session matching
+  displayName: string;
+  role: "colombia" | "boston" | "guest";
+  locationName: string;
+  city: string;
+  countryCode: "CO" | "US";
+  nativeLanguage: "es" | "en";
+  targetLanguage: "es" | "en";
+  avatarUrl: string;
+  latitude?: number;
+  longitude?: number;
+  lastLoginAt?: string;
+}
+
+const usersDatabase: Map<string, StoredUser> = new Map([
+  [
+    "colombia",
+    {
+      id: "user-colombia",
+      username: "colombia",
+      passwordHash: "123456",
+      displayName: "Tú (Colombia)",
+      role: "colombia",
+      locationName: "Bogotá, Colombia",
+      city: "Bogotá",
+      countryCode: "CO",
+      nativeLanguage: "es",
+      targetLanguage: "en",
+      avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80",
+    },
+  ],
+  [
+    "sarah",
+    {
+      id: "user-boston",
+      username: "sarah",
+      passwordHash: "123456",
+      displayName: "Sarah Miller (Boston)",
+      role: "boston",
+      locationName: "Boston, Massachusetts, EE. UU.",
+      city: "Boston, MA",
+      countryCode: "US",
+      nativeLanguage: "en",
+      targetLanguage: "es",
+      avatarUrl: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300&auto=format&fit=crop&q=80",
+    },
+  ],
+  [
+    "boston",
+    {
+      id: "user-boston",
+      username: "boston",
+      passwordHash: "123456",
+      displayName: "Sarah Miller (Boston)",
+      role: "boston",
+      locationName: "Boston, Massachusetts, EE. UU.",
+      city: "Boston, MA",
+      countryCode: "US",
+      nativeLanguage: "en",
+      targetLanguage: "es",
+      avatarUrl: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300&auto=format&fit=crop&q=80",
+    },
+  ],
+]);
+
+// Auth API: Login
+app.post("/api/auth/login", (req: Request, res: Response) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ error: "Por favor ingresa usuario y contraseña." });
+  }
+
+  const cleanUser = String(username).trim().toLowerCase();
+  const user = usersDatabase.get(cleanUser);
+
+  if (!user || user.passwordHash !== String(password).trim()) {
+    return res.status(401).json({ error: "Usuario o contraseña incorrectos. (Prueba con 'colombia' / '123456' o 'sarah' / '123456')" });
+  }
+
+  user.lastLoginAt = new Date().toISOString();
+  return res.json({
+    success: true,
+    user: {
+      id: user.id,
+      username: user.username,
+      displayName: user.displayName,
+      role: user.role,
+      locationName: user.locationName,
+      city: user.city,
+      countryCode: user.countryCode,
+      nativeLanguage: user.nativeLanguage,
+      targetLanguage: user.targetLanguage,
+      avatarUrl: user.avatarUrl,
+      latitude: user.latitude,
+      longitude: user.longitude,
+      lastLoginAt: user.lastLoginAt,
+    },
+  });
+});
+
+// Auth API: Register
+app.post("/api/auth/register", (req: Request, res: Response) => {
+  const { username, password, displayName, role, city, countryCode } = req.body;
+  if (!username || !password || !displayName) {
+    return res.status(400).json({ error: "Completa los campos requeridos." });
+  }
+
+  const cleanUser = String(username).trim().toLowerCase();
+  if (usersDatabase.has(cleanUser)) {
+    return res.status(400).json({ error: "Este nombre de usuario ya existe." });
+  }
+
+  const isBoston = role === "boston" || countryCode === "US";
+  const newUser: StoredUser = {
+    id: `user-${Date.now()}`,
+    username: cleanUser,
+    passwordHash: String(password).trim(),
+    displayName: String(displayName).trim(),
+    role: isBoston ? "boston" : "colombia",
+    locationName: isBoston ? `${city || "Boston"}, EE. UU.` : `${city || "Bogotá"}, Colombia`,
+    city: city || (isBoston ? "Boston" : "Bogotá"),
+    countryCode: isBoston ? "US" : "CO",
+    nativeLanguage: isBoston ? "en" : "es",
+    targetLanguage: isBoston ? "es" : "en",
+    avatarUrl: isBoston
+      ? "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=300&auto=format&fit=crop&q=80"
+      : "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80",
+    lastLoginAt: new Date().toISOString(),
+  };
+
+  usersDatabase.set(cleanUser, newUser);
+
+  return res.json({
+    success: true,
+    user: {
+      id: newUser.id,
+      username: newUser.username,
+      displayName: newUser.displayName,
+      role: newUser.role,
+      locationName: newUser.locationName,
+      city: newUser.city,
+      countryCode: newUser.countryCode,
+      nativeLanguage: newUser.nativeLanguage,
+      targetLanguage: newUser.targetLanguage,
+      avatarUrl: newUser.avatarUrl,
+      lastLoginAt: newUser.lastLoginAt,
+    },
+  });
+});
+
+// Update location coordinate profile
+app.post("/api/auth/update-location", (req: Request, res: Response) => {
+  const { username, latitude, longitude, locationName, city } = req.body;
+  if (!username) return res.status(400).json({ error: "Missing username" });
+
+  const cleanUser = String(username).trim().toLowerCase();
+  const user = usersDatabase.get(cleanUser);
+  if (user) {
+    if (typeof latitude === "number") user.latitude = latitude;
+    if (typeof longitude === "number") user.longitude = longitude;
+    if (locationName) user.locationName = locationName;
+    if (city) user.city = city;
+    return res.json({ success: true, user });
+  }
+  return res.status(404).json({ error: "User not found" });
+});
+
 // API: Health check
 app.get("/api/health", (req: Request, res: Response) => {
   res.json({

@@ -1,5 +1,21 @@
 export type LanguageCode = "es" | "en";
 
+export interface UserAccount {
+  id: string;
+  username: string;
+  displayName: string;
+  role: "colombia" | "boston" | "guest";
+  locationName: string;
+  city: string;
+  countryCode: "CO" | "US";
+  nativeLanguage: LanguageCode;
+  targetLanguage: LanguageCode;
+  avatarUrl?: string;
+  latitude?: number;
+  longitude?: number;
+  lastLoginAt?: string;
+}
+
 export interface Participant {
   id: string;
   name: string;
@@ -13,6 +29,8 @@ export interface Participant {
   isVideoOff: boolean;
   isSpeaking: boolean;
   audioLevel: number; // 0 to 100
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface SubtitleItem {
@@ -38,4 +56,16 @@ export interface RoomConnectionState {
   peerConnected: boolean;
   isConnecting: boolean;
   participantCount: number;
+}
+
+export interface PermissionsState {
+  camera: "prompt" | "granted" | "denied";
+  microphone: "prompt" | "granted" | "denied";
+  location: "prompt" | "granted" | "denied";
+  coordinates?: {
+    latitude: number;
+    longitude: number;
+    accuracy?: number;
+  };
+  locationName?: string;
 }
