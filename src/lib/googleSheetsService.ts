@@ -8,6 +8,23 @@ export interface SheetUserRow {
   fechaRegistro: string;
 }
 
+export const INITIAL_USERS: SheetUserRow[] = [
+  {
+    usuario: "camilo",
+    contrasena: "123456",
+    ubicacion: "Bogotá, Colombia",
+    pais: "Colombia (CO)",
+    fechaRegistro: new Date().toLocaleDateString("es-CO"),
+  },
+  {
+    usuario: "diana",
+    contrasena: "123456",
+    ubicacion: "Boston, Massachusetts, EE. UU.",
+    pais: "Estados Unidos (US)",
+    fechaRegistro: new Date().toLocaleDateString("es-CO"),
+  },
+];
+
 const SPREADSHEET_TITLE = "VozSinFronteras - Base de Datos de Usuarios";
 const SHEET_NAME = "Usuarios";
 const SAVED_SHEET_ID_KEY = "voz_google_sheet_id";
@@ -75,6 +92,8 @@ export async function getOrCreateSpreadsheet(accessToken: string): Promise<{
       if (data.files && data.files.length > 0) {
         const file = data.files[0];
         saveSpreadsheetId(file.id);
+        // Ensure Camilo and Diana exist in the sheet
+        await ensureInitialUsersInSheet(accessToken, file.id);
         return {
           id: file.id,
           url: file.webViewLink || `https://docs.google.com/spreadsheets/d/${file.id}/edit`,
@@ -122,9 +141,10 @@ export async function getOrCreateSpreadsheet(accessToken: string): Promise<{
   const spreadsheetId = newSheet.spreadsheetId;
   saveSpreadsheetId(spreadsheetId);
 
-  // Initialize Header row with [Usuario, Contraseña, Ubicación, País, Fecha Registro]
+  // Initialize Header row and default records: Camilo (Colombia) and Diana (USA)
+  const nowStr = new Date().toLocaleDateString("es-CO");
   await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${SHEET_NAME}!A1:E1?valueInputOption=USER_ENTERED`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${SHEET_NAME}!A1:E3?valueInputOption=USER_ENTERED`,
     {
       method: "PUT",
       headers: {
@@ -132,9 +152,13 @@ export async function getOrCreateSpreadsheet(accessToken: string): Promise<{
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        range: `${SHEET_NAME}!A1:E1`,
+        range: `${SHEET_NAME}!A1:E3`,
         majorDimension: "ROWS",
-        values: [["Usuario", "Contraseña", "Ubicación", "País", "Fecha Registro"]],
+        values: [
+          ["Usuario", "Contraseña", "Ubicación", "País", "Fecha Registro"],
+          ["camilo", "123456", "Bogotá, Colombia", "Colombia (CO)", nowStr],
+          ["diana", "123456", "Boston, Massachusetts, EE. UU.", "Estados Unidos (US)", nowStr],
+        ],
       }),
     }
   );
@@ -257,5 +281,49 @@ export async function saveUserToSheet(
     }
 
     return { success: true, rowUpdated: false };
+  }
+}
+
+/**
+ * Ensures that the default users Camilo (Colombia) and Diana (USA) are always in the sheet
+ */
+export async function ensureInitialUsersInSheet(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<void> {
+  try {
+    const existingUsers = await fetchUsersFromSheet(accessToken, spreadsheetId).catch(() => []);
+    const hasCamilo = existingUsers.some((u) => u.usuario.toLowerCase() === "camilo");
+    const hasDiana = existingUsers.some((u) => u.usuario.toLowerCase() === "diana");
+
+    const rowsToAppend: string[][] = [];
+    const nowStr = new Date().toLocaleDateString("es-CO");
+
+    if (!hasCamilo) {
+      rowsToAppend.push(["camilo", "123456", "Bogotá, Colombia", "Colombia (CO)", nowStr]);
+    }
+    if (!hasDiana) {
+      rowsToAppend.push(["diana", "123456", "Boston, Massachusetts, EE. UU.", "Estados Unidos (US)", nowStr]);
+    }
+
+    if (rowsToAppend.length > 0) {
+      await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${SHEET_NAME}!A:E:append?valueInputOption=USER_ENTERED`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            range: `${SHEET_NAME}!A:E`,
+            majorDimension: "ROWS",
+            values: rowsToAppend,
+          }),
+        }
+      );
+    }
+  } catch (e) {
+    console.warn("Could not check/seed initial users into sheet:", e);
   }
 }

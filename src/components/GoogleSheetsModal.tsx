@@ -22,6 +22,7 @@ import {
   getOrCreateSpreadsheet,
   fetchUsersFromSheet,
   saveUserToSheet,
+  ensureInitialUsersInSheet,
   SheetUserRow,
   getSavedSpreadsheetId,
 } from "../lib/googleSheetsService";
@@ -83,6 +84,9 @@ export const GoogleSheetsModal: React.FC<GoogleSheetsModalProps> = ({
       const sheetInfo = await getOrCreateSpreadsheet(token);
       setSpreadsheetId(sheetInfo.id);
       setSpreadsheetUrl(sheetInfo.url);
+
+      // Ensure Camilo and Diana exist in the Usuarios table in Google Sheets
+      await ensureInitialUsersInSheet(token, sheetInfo.id);
 
       const users = await fetchUsersFromSheet(token, sheetInfo.id);
       setRows(users);

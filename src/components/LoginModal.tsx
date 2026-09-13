@@ -386,6 +386,58 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             </div>
           )}
 
+          {/* Quick Credential Reminder for Diana & Camilo */}
+          <div className="p-3 rounded-2xl bg-indigo-950/40 border border-indigo-500/30 text-xs">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+                Cuentas Registradas en Google Sheets:
+              </span>
+              <span className="text-[10px] text-slate-400">Clic para autocompletar</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setUsername("camilo");
+                  setPassword("123456");
+                  handleManualLocationSwitch("Colombia");
+                }}
+                className={`p-2 rounded-xl border text-left transition-all cursor-pointer ${
+                  username === "camilo"
+                    ? "bg-emerald-950/70 border-emerald-500 text-white"
+                    : "bg-slate-900/80 border-slate-800 text-slate-300 hover:border-emerald-500/50"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-emerald-300">🇨🇴 Camilo</span>
+                  <span className="text-[10px] text-emerald-400 font-mono">123456</span>
+                </div>
+                <div className="text-[10px] text-slate-400 truncate">Bogotá, Colombia</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setUsername("diana");
+                  setPassword("123456");
+                  handleManualLocationSwitch("Estados Unidos");
+                }}
+                className={`p-2 rounded-xl border text-left transition-all cursor-pointer ${
+                  username === "diana"
+                    ? "bg-indigo-950/70 border-indigo-500 text-white"
+                    : "bg-slate-900/80 border-slate-800 text-slate-300 hover:border-indigo-500/50"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-indigo-300">🇺🇸 Diana</span>
+                  <span className="text-[10px] text-indigo-400 font-mono">123456</span>
+                </div>
+                <div className="text-[10px] text-slate-400 truncate">Boston, EE. UU.</div>
+              </button>
+            </div>
+          </div>
+
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1">
               Usuario
